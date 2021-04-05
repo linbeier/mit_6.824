@@ -1,16 +1,23 @@
 package mr
 
-import "log"
-import "net"
-import "os"
-import "net/rpc"
-import "net/http"
+import (
+	"errors"
+	"log"
+	"net"
+	"net/http"
+	"net/rpc"
+	"os"
+)
 
+const idle int = 0
+const maptask int = 1
+const reducetask int = 2
 
 type Coordinator struct {
 	// Your definitions here.
-	[]string workers
-
+	Fileset        []string
+	FilesetPointer int
+	MapWorkers     []string
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -25,8 +32,21 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	return nil
 }
 
-func (c *Coordinator) Assign(name )
-
+func (c *Coordinator) Register(args *RegisterArgs, reply *RegisterReply) error {
+	if c.FilesetPointer < len(c.Fileset) {
+		if c.FilesetPointer+args.MaxFilenum < len(c.Fileset) {
+			reply.FileNames = c.Fileset[c.FilesetPointer : c.FilesetPointer+args.MaxFilenum]
+			c.FilesetPointer += args.MaxFilenum
+		} else {
+			reply.FileNames = c.Fileset[c.FilesetPointer:]
+			c.FilesetPointer = len(c.Fileset)
+		}
+		c.MapWorkers = append(c.MapWorkers, args.WorkerName)
+		return nil
+	} else {
+		return errors.New("no more file to be assigned")
+	}
+}
 
 //
 // start a thread that listens for RPCs from worker.go
@@ -53,7 +73,6 @@ func (c *Coordinator) Done() bool {
 
 	// Your code here.
 
-
 	return ret
 }
 
@@ -66,7 +85,9 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 
 	// Your code here.
-
+	c.Fileset = files
+	c.FilesetPointer = 0
+	c.MapWorkers = []string{}
 
 	c.server()
 	return &c

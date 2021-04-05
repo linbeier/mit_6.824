@@ -1,10 +1,14 @@
 package mr
 
-import "fmt"
-import "log"
-import "net/rpc"
-import "hash/fnv"
-
+import (
+	"fmt"
+	"hash/fnv"
+	"io/ioutil"
+	"log"
+	"net/rpc"
+	"os"
+	"time"
+)
 
 //
 // Map functions return a slice of KeyValue.
@@ -24,17 +28,21 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-
 //
 // main/mrworker.go calls this function.
 //
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
+	var intermediate []KeyValue
+	//send an RPC to the coordinator asking for a task
+	reply := CallRegister()
 
+	kva, _ := MapWork(reply, mapf, reducef)
+	intermediate = append(intermediate, kva...)
 	// Your worker implementation here.
 
 	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
+	CallExample()
 
 }
 
@@ -59,6 +67,37 @@ func CallExample() {
 
 	// reply.Y should be 100.
 	fmt.Printf("reply.Y %v\n", reply.Y)
+}
+
+func CallRegister() []string {
+	args := RegisterArgs{}
+	args.WorkerName = "worker" + time.ANSIC
+	args.MaxFilenum = 4
+
+	reply := RegisterReply{}
+
+	call("Coordinator.Register", &args, &reply)
+
+	return reply.FileNames
+}
+
+func MapWork(files []string, mapf func(string, string) []KeyValue,
+	reducef func(string, []string) string) ([]KeyValue, error) {
+	var intermediate []KeyValue
+	for _, filename := range files {
+		file, err := os.Open(filename)
+		if err != nil {
+			log.Fatalf("cannot open %v", filename)
+		}
+		content, err := ioutil.ReadAll(file)
+		if err != nil {
+			log.Fatalf("cannot read %v", filename)
+		}
+		file.Close()
+		kva := mapf(filename, string(content))
+		intermediate = append(intermediate, kva...)
+	}
+	return intermediate, nil
 }
 
 //
