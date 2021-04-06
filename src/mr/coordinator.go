@@ -9,15 +9,16 @@ import (
 	"os"
 )
 
-const idle int = 0
-const maptask int = 1
-const reducetask int = 2
-
 type Coordinator struct {
 	// Your definitions here.
 	Fileset        []string
 	FilesetPointer int
 	MapWorkers     []string
+	MapFinished    bool
+	MapTasks       map[int]bool
+
+	ReduceFinished bool
+	ReduceTaks     map[int]bool
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -32,20 +33,33 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	return nil
 }
 
+//
 func (c *Coordinator) Register(args *RegisterArgs, reply *RegisterReply) error {
-	if c.FilesetPointer < len(c.Fileset) {
-		if c.FilesetPointer+args.MaxFilenum < len(c.Fileset) {
-			reply.FileNames = c.Fileset[c.FilesetPointer : c.FilesetPointer+args.MaxFilenum]
-			c.FilesetPointer += args.MaxFilenum
+
+	if !c.MapFinished {
+		reply.TaskType = maptask
+		if c.FilesetPointer < len(c.Fileset) {
+
+			if c.FilesetPointer+args.MaxFilenum < len(c.Fileset) {
+				reply.FileNames = c.Fileset[c.FilesetPointer : c.FilesetPointer+args.MaxFilenum]
+				c.FilesetPointer += args.MaxFilenum
+
+			} else {
+				reply.FileNames = c.Fileset[c.FilesetPointer:]
+				c.FilesetPointer = len(c.Fileset)
+
+			}
+			c.MapWorkers = append(c.MapWorkers, args.WorkerName)
+			return nil
+
 		} else {
-			reply.FileNames = c.Fileset[c.FilesetPointer:]
-			c.FilesetPointer = len(c.Fileset)
+			return errors.New("no more file to be assigned")
 		}
-		c.MapWorkers = append(c.MapWorkers, args.WorkerName)
-		return nil
-	} else {
-		return errors.New("no more file to be assigned")
+
+	} else if !c.ReduceFinished {
+		reply.TaskType = reducetask
 	}
+
 }
 
 //
@@ -88,6 +102,8 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.Fileset = files
 	c.FilesetPointer = 0
 	c.MapWorkers = []string{}
+	c.MapTasks = make(map[int]bool, len(files))
+	c.MapFinished = false
 
 	c.server()
 	return &c

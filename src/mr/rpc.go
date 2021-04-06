@@ -15,6 +15,9 @@ import (
 // example to show how to declare the arguments
 // and reply for an RPC.
 //
+const idle int = 0
+const maptask int = 1
+const reducetask int = 2
 
 type ExampleArgs struct {
 	X int
@@ -31,6 +34,7 @@ type RegisterArgs struct {
 
 type RegisterReply struct {
 	FileNames  []string
+	TaskType   int
 	WorkerName string
 }
 

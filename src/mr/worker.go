@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"io/ioutil"
@@ -37,8 +38,22 @@ func Worker(mapf func(string, string) []KeyValue,
 	//send an RPC to the coordinator asking for a task
 	reply := CallRegister()
 
-	kva, _ := MapWork(reply, mapf, reducef)
-	intermediate = append(intermediate, kva...)
+	if reply.TaskType == maptask {
+		kva, _ := MapWork(reply.FileNames, mapf, reducef)
+		intermediate = append(intermediate, kva...)
+	}
+	file, err := os.Open("/var/temp/intermediate/map" + )
+	if err != nil {
+		fmt.Println(err)
+	}
+	enc := json.NewEncoder(file)
+	for _, kv := range intermediate {
+		err := enc.Encode(&kv)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+
 	// Your worker implementation here.
 
 	// uncomment to send the Example RPC to the coordinator.
@@ -69,7 +84,8 @@ func CallExample() {
 	fmt.Printf("reply.Y %v\n", reply.Y)
 }
 
-func CallRegister() []string {
+func CallRegister() RegisterReply {
+
 	args := RegisterArgs{}
 	args.WorkerName = "worker" + time.ANSIC
 	args.MaxFilenum = 4
@@ -78,7 +94,7 @@ func CallRegister() []string {
 
 	call("Coordinator.Register", &args, &reply)
 
-	return reply.FileNames
+	return reply
 }
 
 func MapWork(files []string, mapf func(string, string) []KeyValue,
