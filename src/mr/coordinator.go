@@ -28,17 +28,21 @@ type Coordinator struct {
 
 //
 func (c *Coordinator) Register(args *RegisterArgs, reply *RegisterReply) error {
-	//give worker a name or pass though to reply 
-	if args.WorkerName == 0{
+	//give worker a name or pass though to reply
+	if args.WorkerName == 0 {
 		reply.WorkerName = c.WorkerNum
-	}else{
-		reply.WorkerNum = args.WorkerNum
+	} else {
+		reply.WorkerName = args.WorkerName
 	}
 
+	return nil
+}
+
+func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 	if !c.MapFinished {
 		reply.TaskType = maptask
 		if c.FilesetPointer < len(c.Fileset) {
-			reply.FileName = Fileset[FilesetPointer++]
+			reply.FileName = c.Fileset[c.FilesetPointer]
 			c.MapTasks[reply.FileName] = undergoing
 
 			return nil
@@ -51,7 +55,6 @@ func (c *Coordinator) Register(args *RegisterArgs, reply *RegisterReply) error {
 		reply.TaskType = reducetask
 
 	}
-
 	return nil
 }
 
@@ -101,7 +104,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.WorkerStatus = make(map[string]int)
 	c.WorkerNum = 1
 
-	for _, v := range c.Fileset{
+	for _, v := range c.Fileset {
 		c.MapTasks[v] = idle
 	}
 
