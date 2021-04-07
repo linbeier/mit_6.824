@@ -13,43 +13,34 @@ type Coordinator struct {
 	// Your definitions here.
 	Fileset        []string
 	FilesetPointer int
-	MapWorkers     []string
-	MapFinished    bool
-	MapTasks       map[int]bool
+
+	MapFinished bool
+	MapTasks    map[string]int
 
 	ReduceFinished bool
-	ReduceTaks     map[int]bool
+	ReduceTaks     map[string]int
+
+	WorkerStatus map[string]int
+	WorkerNum    int
 }
 
 // Your code here -- RPC handlers for the worker to call.
 
 //
-// an example RPC handler.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
-func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
-	return nil
-}
-
-//
 func (c *Coordinator) Register(args *RegisterArgs, reply *RegisterReply) error {
+	//give worker a name or pass though to reply 
+	if args.WorkerName == 0{
+		reply.WorkerName = c.WorkerNum
+	}else{
+		reply.WorkerNum = args.WorkerNum
+	}
 
 	if !c.MapFinished {
 		reply.TaskType = maptask
 		if c.FilesetPointer < len(c.Fileset) {
+			reply.FileName = Fileset[FilesetPointer++]
+			c.MapTasks[reply.FileName] = undergoing
 
-			if c.FilesetPointer+args.MaxFilenum < len(c.Fileset) {
-				reply.FileNames = c.Fileset[c.FilesetPointer : c.FilesetPointer+args.MaxFilenum]
-				c.FilesetPointer += args.MaxFilenum
-
-			} else {
-				reply.FileNames = c.Fileset[c.FilesetPointer:]
-				c.FilesetPointer = len(c.Fileset)
-
-			}
-			c.MapWorkers = append(c.MapWorkers, args.WorkerName)
 			return nil
 
 		} else {
@@ -58,8 +49,10 @@ func (c *Coordinator) Register(args *RegisterArgs, reply *RegisterReply) error {
 
 	} else if !c.ReduceFinished {
 		reply.TaskType = reducetask
+
 	}
 
+	return nil
 }
 
 //
@@ -101,9 +94,16 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// Your code here.
 	c.Fileset = files
 	c.FilesetPointer = 0
-	c.MapWorkers = []string{}
-	c.MapTasks = make(map[int]bool, len(files))
+	c.MapTasks = make(map[string]int)
 	c.MapFinished = false
+	c.ReduceTaks = make(map[string]int)
+	c.ReduceFinished = false
+	c.WorkerStatus = make(map[string]int)
+	c.WorkerNum = 1
+
+	for _, v := range c.Fileset{
+		c.MapTasks[v] = idle
+	}
 
 	c.server()
 	return &c

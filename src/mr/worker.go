@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/rpc"
 	"os"
-	"time"
 )
 
 //
@@ -32,63 +31,37 @@ func ihash(key string) int {
 //
 // main/mrworker.go calls this function.
 //
-func Worker(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string) {
+func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
+
 	var intermediate []KeyValue
+
 	//send an RPC to the coordinator asking for a task
 	reply := CallRegister()
 
 	if reply.TaskType == maptask {
-		kva, _ := MapWork(reply.FileNames, mapf, reducef)
+		kva, _ := MapWork(reply.FileNames, mapf)
 		intermediate = append(intermediate, kva...)
-	}
-	file, err := os.Open("/var/temp/intermediate/map" + )
-	if err != nil {
-		fmt.Println(err)
-	}
-	enc := json.NewEncoder(file)
-	for _, kv := range intermediate {
-		err := enc.Encode(&kv)
+
+		file, err := os.Open("/var/temp/intermediate/map")
 		if err != nil {
 			fmt.Println(err)
 		}
+		enc := json.NewEncoder(file)
+		for _, kv := range intermediate {
+			err := enc.Encode(&kv)
+			if err != nil {
+				fmt.Println(err)
+			}
+		}
+	} else {
+
 	}
 
-	// Your worker implementation here.
-
-	// uncomment to send the Example RPC to the coordinator.
-	CallExample()
-
-}
-
-//
-// example function to show how to make an RPC call to the coordinator.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
-func CallExample() {
-
-	// declare an argument structure.
-	args := ExampleArgs{}
-
-	// fill in the argument(s).
-	args.X = 99
-
-	// declare a reply structure.
-	reply := ExampleReply{}
-
-	// send the RPC request, wait for the reply.
-	call("Coordinator.Example", &args, &reply)
-
-	// reply.Y should be 100.
-	fmt.Printf("reply.Y %v\n", reply.Y)
 }
 
 func CallRegister() RegisterReply {
 
 	args := RegisterArgs{}
-	args.WorkerName = "worker" + time.ANSIC
-	args.MaxFilenum = 4
 
 	reply := RegisterReply{}
 
@@ -97,8 +70,7 @@ func CallRegister() RegisterReply {
 	return reply
 }
 
-func MapWork(files []string, mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string) ([]KeyValue, error) {
+func MapWork(files []string, mapf func(string, string) []KeyValue) ([]KeyValue, error) {
 	var intermediate []KeyValue
 	for _, filename := range files {
 		file, err := os.Open(filename)

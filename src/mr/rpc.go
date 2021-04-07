@@ -16,26 +16,23 @@ import (
 // and reply for an RPC.
 //
 const idle int = 0
+
 const maptask int = 1
 const reducetask int = 2
 
-type ExampleArgs struct {
-	X int
-}
+var workernum int = 0
 
-type ExampleReply struct {
-	Y int
-}
+const undergoing int = 1
+const finished int = 2
 
 type RegisterArgs struct {
-	WorkerName string
-	MaxFilenum int
+	WorkerName int
 }
 
 type RegisterReply struct {
-	FileNames  []string
+	FileName   string
 	TaskType   int
-	WorkerName string
+	WorkerName int
 }
 
 // Add your RPC definitions here.
