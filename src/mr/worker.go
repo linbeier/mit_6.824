@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -36,55 +37,70 @@ func ihash(key string) int {
 func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 
 	var intermediate []KeyValue
+	var tempfiles []*os.File
+	var encoders []*json.Encoder
+	var tempdir string
+	var workinfo AssignReply
+	var callch chan AssignReply
+
+	callch = make(chan AssignReply)
+
+	dir, err := ioutil.TempDir("", "intermediate")
+	if err != nil {
+		fmt.Println(err)
+	}
+	err = os.Rename(dir, "/tmp/intermediate")
+	tempdir = "/tmp/intermediate"
+
+	go CallAssign(callch)
 
 	//send an RPC to the coordinator asking for a task
-	workerinfo := CallRegister()
+	for workinfo = range callch {
 
-	for {
-		workinfo := CallAssign()
+		for i := 0; i < workinfo.t.NReduce; i++ {
 
-		if workinfo.TaskType == maptask {
-			kva, _ := MapWork(workinfo.FileName, mapf)
-			intermediate = append(intermediate, kva...)
-
-			file, err := os.Open("/var/temp/intermediate/mr-" + strconv.Itoa(workerinfo.WorkerName))
+			filename := filepath.Join(tempdir, "mr-"+strconv.Itoa(workinfo.t.TaskNum)+"-"+strconv.Itoa(i)+"-")
+			file, err := ioutil.TempFile(tempdir, filename)
+			defer file.Close()
 			if err != nil {
 				fmt.Println(err)
 			}
-			enc := json.NewEncoder(file)
+
+			encoders = append(encoders, json.NewEncoder(file))
+			tempfiles = append(tempfiles, file)
+		}
+
+		switch workinfo.t.TaskType {
+		case maptask:
+			kva, _ := MapWork(workinfo.t.FileName, mapf)
+			intermediate = append(intermediate, kva...)
+
 			for _, kv := range intermediate {
-				err := enc.Encode(&kv)
+				err = encoders[ihash(kv.Key)].Encode(&kv)
 				if err != nil {
 					fmt.Println(err)
 				}
 			}
-		} else {
+
+		case reducetask:
+
+		case idle:
 
 		}
-		time.Sleep(1)
+		time.Sleep(10)
 	}
 
 }
 
-func CallRegister() RegisterReply {
+func CallAssign(ch chan AssignReply) {
 
-	args := RegisterArgs{}
-
-	reply := RegisterReply{}
-
-	call("Coordinator.Register", &args, &reply)
-
-	return reply
-}
-
-func CallAssign() AssignReply {
 	args := AssignArgs{}
 
 	reply := AssignReply{}
 
 	call("Coordinator.Assign", &args, &reply)
 
-	return reply
+	ch <- reply
 }
 
 func MapWork(filename string, mapf func(string, string) []KeyValue) ([]KeyValue, error) {

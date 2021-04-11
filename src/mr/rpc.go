@@ -9,6 +9,7 @@ package mr
 import (
 	"os"
 	"strconv"
+	"time"
 )
 
 //
@@ -24,20 +25,20 @@ const (
 	finished   int = 2
 )
 
+type TaskInfo struct {
+	TaskType  int
+	TaskNum   int
+	NReduce   int
+	FileName  string
+	TimeBegin time.Time
+}
+
 type AssignArgs struct {
 	TimeBegin time.Time
 }
 
 type AssignReply struct {
-	t Taskinfo
-}
-
-type AssignArgs struct {
-}
-
-type AssignReply struct {
-	FileName string
-	TaskType int
+	t TaskInfo
 }
 
 // Add your RPC definitions here.

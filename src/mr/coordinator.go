@@ -1,7 +1,6 @@
 package mr
 
 import (
-	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -10,14 +9,6 @@ import (
 	"time"
 )
 
-type Taskinfo struct {
-	Tasktype  int
-	Tasknum   int
-	NReduce   int
-	FileName  string
-	TimeBegin time.Time
-}
-
 type Coordinator struct {
 	// Your definitions here.
 	nReduce int
@@ -25,34 +16,69 @@ type Coordinator struct {
 	Fileset        []string
 	FilesetPointer int
 
-	MapTasks []Taskinfo
+	MapTasks []TaskInfo
 
-	ReduceTaks []Taskinfo
+	ReduceTaks []TaskInfo
 
-	WorkerStatus []Taskinfo
+	WorkerStatus []TaskInfo
 }
 
 // Your code here -- RPC handlers for the worker to call.
 
 //
-func (c *Coordinator) Assign(args *RegisterArgs, reply *RegisterReply) error {
+func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 	//map任务还未分配完全
-	if FilesetPointer < len(Fileset) {
-		reply = Taskinfo{
+	if c.FilesetPointer < len(c.Fileset) {
+		reply.t = TaskInfo{
 			TaskType:  maptask,
 			NReduce:   c.nReduce,
-			FileName:  Fileset[FilesetPointer],
+			FileName:  c.Fileset[c.FilesetPointer],
 			TimeBegin: args.TimeBegin,
 		}
-		FilesetPointer++
-		c.MapTasks = append(c.MapTasks, reply)
-		reply.Tasknum = len(c.MapTasks) - 1;
-	}else if(len(c.MapTasks) > 0){
+		c.FilesetPointer++
+		c.MapTasks = append(c.MapTasks, reply.t)
+		reply.t.TaskNum = len(c.MapTasks) - 1
+	} else if len(c.MapTasks) > 0 {
 		//map任务已分配完全，等待map任务全部完成
-		if(c.MapTasks)
+		//todo: Check if task in queue out-date
+		timenow := time.Now()
+		for i, v := range c.MapTasks {
+			if timenow.Sub(v.TimeBegin) >= 60*time.Second {
+				reply.t = TaskInfo{
+					TaskType:  maptask,
+					NReduce:   c.nReduce,
+					TaskNum:   i,
+					FileName:  v.FileName,
+					TimeBegin: time.Now(),
+				}
+
+			}
+		}
+		reply.t = TaskInfo{
+			TaskType: idle,
+		}
+	} else {
+		//reduce task
+		if len(c.ReduceTaks) < c.nReduce {
+			reply.t = TaskInfo{
+				TaskType:  reducetask,
+				NReduce:   c.nReduce,
+				TimeBegin: args.TimeBegin,
+			}
+			c.ReduceTaks = append(c.ReduceTaks, reply.t)
+			reply.t.TaskNum = len(c.ReduceTaks) - 1
+		} else {
+			reply.t = TaskInfo{
+				TaskType: idle,
+			}
+		}
 	}
 
 	return nil
+}
+
+func (c *Coordinator) WorkFinish() error {
+
 }
 
 //
