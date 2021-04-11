@@ -15,15 +15,14 @@ import (
 // example to show how to declare the arguments
 // and reply for an RPC.
 //
-const idle int = 0
+const (
+	idle       int = 0
+	maptask    int = 1
+	reducetask int = 2
 
-const maptask int = 1
-const reducetask int = 2
-
-var workernum int = 0
-
-const undergoing int = 1
-const finished int = 2
+	undergoing int = 1
+	finished   int = 2
+)
 
 type RegisterArgs struct {
 	WorkerName int
