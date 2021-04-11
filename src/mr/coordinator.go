@@ -20,6 +20,8 @@ type Taskinfo struct {
 
 type Coordinator struct {
 	// Your definitions here.
+	nReduce int
+
 	Fileset        []string
 	FilesetPointer int
 
@@ -33,8 +35,22 @@ type Coordinator struct {
 // Your code here -- RPC handlers for the worker to call.
 
 //
-func (c *Coordinator) Register(args *RegisterArgs, reply *RegisterReply) error {
-	//give worker a name or pass though to reply
+func (c *Coordinator) Assign(args *RegisterArgs, reply *RegisterReply) error {
+	//map任务还未分配完全
+	if FilesetPointer < len(Fileset) {
+		reply = Taskinfo{
+			TaskType:  maptask,
+			NReduce:   c.nReduce,
+			FileName:  Fileset[FilesetPointer],
+			TimeBegin: args.TimeBegin,
+		}
+		FilesetPointer++
+		c.MapTasks = append(c.MapTasks, reply)
+		reply.Tasknum = len(c.MapTasks) - 1;
+	}else if(len(c.MapTasks) > 0){
+		//map任务已分配完全，等待map任务全部完成
+		if(c.MapTasks)
+	}
 
 	return nil
 }
@@ -78,15 +94,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// Your code here.
 	c.Fileset = files
 	c.FilesetPointer = 0
-
-	for i, v := range c.Fileset {
-		c.MapTasks = append(c.MapTasks, Taskinfo{
-			TaskType: maptask,
-			Tasknum:  i,
-			NReduce:  nReduce,
-			FileName: v,
-		})
-	}
+	c.nReduce = nReduce
 
 	c.server()
 	return &c
