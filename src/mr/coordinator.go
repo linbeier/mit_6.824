@@ -7,50 +7,34 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"time"
 )
+
+type Taskinfo struct {
+	Tasktype  int
+	Tasknum   int
+	NReduce   int
+	FileName  string
+	TimeBegin time.Time
+}
 
 type Coordinator struct {
 	// Your definitions here.
 	Fileset        []string
 	FilesetPointer int
 
-	MapFinished bool
-	MapTasks    map[string]int
+	MapTasks []Taskinfo
 
-	ReduceFinished bool
-	ReduceTaks     map[string]int
+	ReduceTaks []Taskinfo
 
-	WorkerStatus map[string]int
-	WorkerNum    int
+	WorkerStatus []Taskinfo
 }
 
 // Your code here -- RPC handlers for the worker to call.
 
 //
 func (c *Coordinator) Register(args *RegisterArgs, reply *RegisterReply) error {
-	//give worker a name or pass though to reply 
-	if args.WorkerName == 0{
-		reply.WorkerName = c.WorkerNum
-	}else{
-		reply.WorkerNum = args.WorkerNum
-	}
-
-	if !c.MapFinished {
-		reply.TaskType = maptask
-		if c.FilesetPointer < len(c.Fileset) {
-			reply.FileName = Fileset[FilesetPointer++]
-			c.MapTasks[reply.FileName] = undergoing
-
-			return nil
-
-		} else {
-			return errors.New("no more file to be assigned")
-		}
-
-	} else if !c.ReduceFinished {
-		reply.TaskType = reducetask
-
-	}
+	//give worker a name or pass though to reply
 
 	return nil
 }
@@ -94,15 +78,14 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// Your code here.
 	c.Fileset = files
 	c.FilesetPointer = 0
-	c.MapTasks = make(map[string]int)
-	c.MapFinished = false
-	c.ReduceTaks = make(map[string]int)
-	c.ReduceFinished = false
-	c.WorkerStatus = make(map[string]int)
-	c.WorkerNum = 1
 
-	for _, v := range c.Fileset{
-		c.MapTasks[v] = idle
+	for i, v := range c.Fileset {
+		c.MapTasks = append(c.MapTasks, Taskinfo{
+			TaskType: maptask,
+			Tasknum:  i,
+			NReduce:  nReduce,
+			FileName: v,
+		})
 	}
 
 	c.server()
