@@ -32,6 +32,14 @@ type AssignReply struct {
 	t Taskinfo
 }
 
+type AssignArgs struct {
+}
+
+type AssignReply struct {
+	FileName string
+	TaskType int
+}
+
 // Add your RPC definitions here.
 
 // Cook up a unique-ish UNIX-domain socket name

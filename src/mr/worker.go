@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"strconv"
+	"time"
 )
 
 //
@@ -36,25 +38,30 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 	var intermediate []KeyValue
 
 	//send an RPC to the coordinator asking for a task
-	reply := CallRegister()
+	workerinfo := CallRegister()
 
-	if reply.TaskType == maptask {
-		kva, _ := MapWork(reply.FileNames, mapf)
-		intermediate = append(intermediate, kva...)
+	for {
+		workinfo := CallAssign()
 
-		file, err := os.Open("/var/temp/intermediate/map")
-		if err != nil {
-			fmt.Println(err)
-		}
-		enc := json.NewEncoder(file)
-		for _, kv := range intermediate {
-			err := enc.Encode(&kv)
+		if workinfo.TaskType == maptask {
+			kva, _ := MapWork(workinfo.FileName, mapf)
+			intermediate = append(intermediate, kva...)
+
+			file, err := os.Open("/var/temp/intermediate/mr-" + strconv.Itoa(workerinfo.WorkerName))
 			if err != nil {
 				fmt.Println(err)
 			}
-		}
-	} else {
+			enc := json.NewEncoder(file)
+			for _, kv := range intermediate {
+				err := enc.Encode(&kv)
+				if err != nil {
+					fmt.Println(err)
+				}
+			}
+		} else {
 
+		}
+		time.Sleep(1)
 	}
 
 }
@@ -70,21 +77,31 @@ func CallRegister() RegisterReply {
 	return reply
 }
 
-func MapWork(files []string, mapf func(string, string) []KeyValue) ([]KeyValue, error) {
+func CallAssign() AssignReply {
+	args := AssignArgs{}
+
+	reply := AssignReply{}
+
+	call("Coordinator.Assign", &args, &reply)
+
+	return reply
+}
+
+func MapWork(filename string, mapf func(string, string) []KeyValue) ([]KeyValue, error) {
 	var intermediate []KeyValue
-	for _, filename := range files {
-		file, err := os.Open(filename)
-		if err != nil {
-			log.Fatalf("cannot open %v", filename)
-		}
-		content, err := ioutil.ReadAll(file)
-		if err != nil {
-			log.Fatalf("cannot read %v", filename)
-		}
-		file.Close()
-		kva := mapf(filename, string(content))
-		intermediate = append(intermediate, kva...)
+
+	file, err := os.Open(filename)
+	if err != nil {
+		log.Fatalf("cannot open %v", filename)
 	}
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		log.Fatalf("cannot read %v", filename)
+	}
+	file.Close()
+	kva := mapf(filename, string(content))
+	intermediate = append(intermediate, kva...)
+
 	return intermediate, nil
 }
 
