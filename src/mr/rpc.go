@@ -24,14 +24,12 @@ const (
 	finished   int = 2
 )
 
-type RegisterArgs struct {
-	WorkerName int
+type AssignArgs struct {
+	TimeBegin time.Time
 }
 
-type RegisterReply struct {
-	FileName   string
-	TaskType   int
-	WorkerName int
+type AssignReply struct {
+	t Taskinfo
 }
 
 // Add your RPC definitions here.
