@@ -51,12 +51,15 @@ func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 					FileName:  v.FileName,
 					TimeBegin: time.Now(),
 				}
-
+				c.MapTasks[i] = reply.t
+				break
+			} else {
+				reply.t = TaskInfo{
+					TaskType: idle,
+				}
 			}
 		}
-		reply.t = TaskInfo{
-			TaskType: idle,
-		}
+
 	} else {
 		//reduce task
 		if len(c.ReduceTaks) < c.nReduce {
