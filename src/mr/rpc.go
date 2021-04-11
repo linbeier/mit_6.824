@@ -29,9 +29,15 @@ type RegisterArgs struct {
 }
 
 type RegisterReply struct {
-	FileName   string
-	TaskType   int
 	WorkerName int
+}
+
+type AssignArgs struct {
+}
+
+type AssignReply struct {
+	FileName string
+	TaskType int
 }
 
 // Add your RPC definitions here.

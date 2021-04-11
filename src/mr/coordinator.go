@@ -86,6 +86,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 			NReduce:  nReduce,
 			FileName: v,
 		})
+
 	}
 
 	c.server()
