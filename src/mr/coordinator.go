@@ -16,9 +16,10 @@ type Coordinator struct {
 	Fileset        []string
 	FilesetPointer int
 
-	MapTasks []TaskInfo
+	MapTasks map[int]TaskInfo
 
-	ReduceTaks []TaskInfo
+	ReduceTaks map[int]TaskInfo
+	ReduceNum  int
 
 	WorkerStatus []TaskInfo
 }
@@ -33,14 +34,15 @@ func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 			TaskType:  maptask,
 			NReduce:   c.nReduce,
 			FileName:  c.Fileset[c.FilesetPointer],
-			TimeBegin: args.TimeBegin,
+			TimeBegin: time.Now(),
 		}
+
+		reply.t.TaskNum = c.FilesetPointer
+		c.MapTasks[reply.t.TaskNum] = reply.t
 		c.FilesetPointer++
-		c.MapTasks = append(c.MapTasks, reply.t)
-		reply.t.TaskNum = len(c.MapTasks) - 1
+
 	} else if len(c.MapTasks) > 0 {
 		//map任务已分配完全，等待map任务全部完成
-		//todo: Check if task in queue out-date
 		timenow := time.Now()
 		for i, v := range c.MapTasks {
 			if timenow.Sub(v.TimeBegin) >= 60*time.Second {
@@ -62,14 +64,15 @@ func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 
 	} else {
 		//reduce task
-		if len(c.ReduceTaks) < c.nReduce {
+		if c.ReduceNum < c.nReduce {
 			reply.t = TaskInfo{
 				TaskType:  reducetask,
 				NReduce:   c.nReduce,
-				TimeBegin: args.TimeBegin,
+				TimeBegin: time.Now(),
 			}
-			c.ReduceTaks = append(c.ReduceTaks, reply.t)
-			reply.t.TaskNum = len(c.ReduceTaks) - 1
+			reply.t.TaskNum = c.ReduceNum
+			c.ReduceTaks[c.ReduceNum] = reply.t
+			c.ReduceNum++
 		} else {
 			reply.t = TaskInfo{
 				TaskType: idle,
@@ -80,8 +83,16 @@ func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 	return nil
 }
 
-func (c *Coordinator) WorkFinish() error {
+func (c *Coordinator) WorkFinish(args *FinishArgs, reply *FinishReply) error {
+	if args.TaskType == maptask {
+		carg := AssignArgs{}
+		creply := AssignReply{t : TaskInfo{}}
+		c.Assign(&cargs, &creply)
+		reply.t = creply.t
 
+	} else {
+		carg := 
+	}
 }
 
 //
@@ -124,6 +135,11 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.Fileset = files
 	c.FilesetPointer = 0
 	c.nReduce = nReduce
+
+	c.MapTasks = make(map[int]TaskInfo)
+
+	c.ReduceTaks = make(map[int]TaskInfo)
+	c.ReduceNum = 0
 
 	c.server()
 	return &c

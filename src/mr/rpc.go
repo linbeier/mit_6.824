@@ -34,7 +34,6 @@ type TaskInfo struct {
 }
 
 type AssignArgs struct {
-	TimeBegin time.Time
 }
 
 type AssignReply struct {
@@ -42,10 +41,12 @@ type AssignReply struct {
 }
 
 type FinishArgs struct {
-	TaskNum int
+	TaskType int
+	TaskNum  int
 }
 
 type FinishReply struct {
+	t TaskInfo
 }
 
 // Add your RPC definitions here.
