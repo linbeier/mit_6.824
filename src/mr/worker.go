@@ -41,34 +41,37 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 	var encoders []*json.Encoder
 	var tempdir string
 	var workinfo AssignReply
-	var callch chan AssignReply
+	var callch = make(chan AssignReply)
 
-	callch = make(chan AssignReply)
-
+	//todo: change tempfile to file
 	dir, err := ioutil.TempDir("", "intermediate")
 	if err != nil {
 		fmt.Println(err)
 	}
 	err = os.Rename(dir, "/tmp/intermediate")
+	if err != nil {
+		fmt.Println(err)
+	}
 	tempdir = "/tmp/intermediate"
 
 	go CallAssign(callch)
 
 	//send an RPC to the coordinator asking for a task
 	for workinfo = range callch {
+		func() {
+			for i := 0; i < workinfo.t.NReduce; i++ {
 
-		for i := 0; i < workinfo.t.NReduce; i++ {
+				filename := filepath.Join(tempdir, "mr-"+strconv.Itoa(workinfo.t.TaskNum)+"-")
+				file, err := ioutil.TempFile(tempdir, filename)
+				if err != nil {
+					fmt.Println(err)
+				}
+				defer file.Close()
 
-			filename := filepath.Join(tempdir, "mr-"+strconv.Itoa(workinfo.t.TaskNum)+"-"+strconv.Itoa(i)+"-")
-			file, err := ioutil.TempFile(tempdir, filename)
-			defer file.Close()
-			if err != nil {
-				fmt.Println(err)
+				encoders = append(encoders, json.NewEncoder(file))
+				tempfiles = append(tempfiles, file)
 			}
-
-			encoders = append(encoders, json.NewEncoder(file))
-			tempfiles = append(tempfiles, file)
-		}
+		}()
 
 		switch workinfo.t.TaskType {
 		case maptask:
@@ -87,7 +90,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 		case idle:
 
 		}
-		time.Sleep(10)
+		time.Sleep(10 * time.Second)
 	}
 
 }
