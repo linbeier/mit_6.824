@@ -9,6 +9,7 @@ import (
 	"net/rpc"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"time"
 )
@@ -35,6 +36,7 @@ func ihash(key string) int {
 // main/mrworker.go calls this function.
 //
 func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
+	//todo: call finish
 
 	var intermediate []KeyValue
 	var tempfiles []*os.File
@@ -43,7 +45,6 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 	var workinfo AssignReply
 	var callch = make(chan AssignReply)
 
-	//todo: change tempfile to file
 	dir, err := ioutil.TempDir("", "intermediate")
 	if err != nil {
 		fmt.Println(err)
@@ -54,27 +55,25 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 	}
 	tempdir = "/tmp/intermediate"
 
+	//send an RPC to the coordinator asking for a task
 	go CallAssign(callch)
 
-	//send an RPC to the coordinator asking for a task
+	// every task pair creates a tempfile, and rename by coordinator when all task finished
 	for workinfo = range callch {
-		func() {
-			for i := 0; i < workinfo.t.NReduce; i++ {
 
-				filename := filepath.Join(tempdir, "mr-"+strconv.Itoa(workinfo.t.TaskNum)+"-")
+		switch workinfo.t.TaskType {
+		case maptask:
+			for i := 0; i < workinfo.t.NReduce; i++ {
+				filename := filepath.Join(tempdir, "mr-"+strconv.Itoa(workinfo.t.TaskNum)+"-"+strconv.Itoa(i))
 				file, err := ioutil.TempFile(tempdir, filename)
 				if err != nil {
 					fmt.Println(err)
 				}
-				defer file.Close()
 
 				encoders = append(encoders, json.NewEncoder(file))
 				tempfiles = append(tempfiles, file)
 			}
-		}()
 
-		switch workinfo.t.TaskType {
-		case maptask:
 			kva, _ := MapWork(workinfo.t.FileName, mapf)
 			intermediate = append(intermediate, kva...)
 
@@ -85,14 +84,65 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 				}
 			}
 
+			for i := 0; i < workinfo.t.NReduce; i++ {
+				tempfiles[i].Close()
+			}
+
 		case reducetask:
+			var filenames []string
 
-		case idle:
+			regstring := "mr-.-" + strconv.Itoa(workinfo.t.TaskNum)
+			Dirfiles, err := ioutil.ReadDir(tempdir)
+			if err != nil {
 
+			}
+			for _, file := range Dirfiles {
+				filenames = append(filenames, file.Name())
+			}
+			MatchedName := RegMatch(regstring, filenames)
+
+			var kva map[string][]string
+			kva = make(map[string][]string)
+
+			for _, name := range MatchedName {
+
+				file, err := os.Open(name)
+				if err != nil {
+
+				}
+				dec := json.NewDecoder(file)
+				for {
+					var kv KeyValue
+					if err := dec.Decode(&kv); err != nil {
+						break
+					}
+
+					kva[kv.Key] = append(kva[kv.Key], kv.Value)
+				}
+				file.Close()
+			}
+			ofile, _ := os.Create("mr-out-" + strconv.Itoa(workinfo.t.TaskNum))
+			for k, v := range kva {
+				fmt.Fprintf(ofile, "%v %v\n", k, reducef(k, v))
+			}
+			ofile.Close()
 		}
-		time.Sleep(10 * time.Second)
+		time.Sleep(1 * time.Second)
 	}
 
+}
+
+func RegMatch(regstring string, filenames []string) (reply []string) {
+	for _, name := range filenames {
+		Matched, err := regexp.MatchString(regstring, name)
+		if err != nil {
+			fmt.Println(err)
+		}
+		if Matched {
+			reply = append(reply, name)
+		}
+	}
+	return
 }
 
 func CallAssign(ch chan AssignReply) {
@@ -105,6 +155,9 @@ func CallAssign(ch chan AssignReply) {
 
 	ch <- reply
 }
+
+//todo: call finish
+func CallFinish()
 
 func MapWork(filename string, mapf func(string, string) []KeyValue) ([]KeyValue, error) {
 	var intermediate []KeyValue

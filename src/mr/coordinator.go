@@ -122,10 +122,10 @@ func (c *Coordinator) WorkFinish(args *FinishArgs, reply *FinishReply) error {
 		c.ReduceTasks.mutex.Unlock()
 
 	}
-	carg := AssignArgs{}
-	creply := AssignReply{t: TaskInfo{}}
-	c.Assign(&carg, &creply)
-	reply.t = creply.t
+	// carg := AssignArgs{}
+	// creply := AssignReply{t: TaskInfo{}}
+	// c.Assign(&carg, &creply)
+	// reply.t = creply.t
 	return nil
 }
 
