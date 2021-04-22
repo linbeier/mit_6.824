@@ -20,9 +20,6 @@ const (
 	idle       int = 0
 	maptask    int = 1
 	reducetask int = 2
-
-	undergoing int = 1
-	finished   int = 2
 )
 
 type TaskInfo struct {
@@ -46,7 +43,6 @@ type FinishArgs struct {
 }
 
 type FinishReply struct {
-	t TaskInfo
 }
 
 // Add your RPC definitions here.

@@ -17,7 +17,7 @@ type MapTask struct {
 
 type ReduceTask struct {
 	r         map[int]TaskInfo
-	mutex     sync.Mutex
+	mutex     sync.RWMutex
 	ReduceNum int
 }
 
@@ -99,6 +99,30 @@ func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 			c.ReduceTasks.r[c.ReduceTasks.ReduceNum] = reply.t
 			c.ReduceTasks.ReduceNum++
 			c.ReduceTasks.mutex.Unlock()
+		} else if len(c.ReduceTasks.r) > 0 {
+			iternum := -1
+			timenow := time.Now()
+
+			c.ReduceTasks.mutex.RLock()
+			for i, v := range c.ReduceTasks.r {
+				if timenow.Sub(v.TimeBegin) >= 60*time.Second {
+					reply.t = TaskInfo{
+						TaskType:  reducetask,
+						NReduce:   c.nReduce,
+						TaskNum:   i,
+						TimeBegin: time.Now(),
+					}
+					iternum = i
+					break
+				}
+			}
+			c.ReduceTasks.mutex.RUnlock()
+
+			if iternum > -1 {
+				c.ReduceTasks.mutex.Lock()
+				c.ReduceTasks.r[iternum] = reply.t
+				c.ReduceTasks.mutex.Unlock()
+			}
 		} else {
 			reply.t = TaskInfo{
 				TaskType: idle,
@@ -115,17 +139,11 @@ func (c *Coordinator) WorkFinish(args *FinishArgs, reply *FinishReply) error {
 		c.MapTasks.mutex.Lock()
 		delete(c.MapTasks.m, args.TaskNum)
 		c.MapTasks.mutex.Unlock()
-
-	} else {
+	} else if args.TaskType == reducetask {
 		c.ReduceTasks.mutex.Lock()
 		delete(c.ReduceTasks.r, args.TaskNum)
 		c.ReduceTasks.mutex.Unlock()
-
 	}
-	// carg := AssignArgs{}
-	// creply := AssignReply{t: TaskInfo{}}
-	// c.Assign(&carg, &creply)
-	// reply.t = creply.t
 	return nil
 }
 
@@ -152,7 +170,9 @@ func (c *Coordinator) server() {
 func (c *Coordinator) Done() bool {
 	ret := false
 
-	// Your code here.
+	if len(c.MapTasks.m) == 0 && len(c.ReduceTasks.r) == 0 {
+		ret = true
+	}
 
 	return ret
 }

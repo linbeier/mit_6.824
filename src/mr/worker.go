@@ -56,7 +56,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 	tempdir = "/tmp/intermediate"
 
 	//send an RPC to the coordinator asking for a task
-	go CallAssign(callch)
+	callch <- CallAssign()
 
 	// every task pair creates a tempfile, and rename by coordinator when all task finished
 	for workinfo = range callch {
@@ -126,10 +126,19 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 				fmt.Fprintf(ofile, "%v %v\n", k, reducef(k, v))
 			}
 			ofile.Close()
-		}
-		time.Sleep(1 * time.Second)
-	}
 
+		case idle:
+			time.Sleep(1 * time.Second)
+
+		}
+
+		CallFinish(workinfo.t.TaskNum, workinfo.t.TaskType)
+
+		time.Sleep(1 * time.Second)
+
+		callch <- CallAssign()
+	}
+	close(callch)
 }
 
 func RegMatch(regstring string, filenames []string) (reply []string) {
@@ -145,7 +154,7 @@ func RegMatch(regstring string, filenames []string) (reply []string) {
 	return
 }
 
-func CallAssign(ch chan AssignReply) {
+func CallAssign() AssignReply {
 
 	args := AssignArgs{}
 
@@ -153,11 +162,21 @@ func CallAssign(ch chan AssignReply) {
 
 	call("Coordinator.Assign", &args, &reply)
 
-	ch <- reply
+	return reply
 }
 
 //todo: call finish
-func CallFinish()
+func CallFinish(Tasktype, Tasknum int) {
+
+	args := FinishArgs{
+		TaskType: Tasktype,
+		TaskNum:  Tasknum,
+	}
+
+	reply := FinishReply{}
+
+	call("Coordinator.WorkFinish", &args, &reply)
+}
 
 func MapWork(filename string, mapf func(string, string) []KeyValue) ([]KeyValue, error) {
 	var intermediate []KeyValue
