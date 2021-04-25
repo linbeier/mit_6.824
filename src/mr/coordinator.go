@@ -87,7 +87,6 @@ func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 
 	} else {
 		//reduce task
-		//todo: check if reduce task ran out of date
 		if c.ReduceTasks.ReduceNum < c.nReduce {
 			reply.t = TaskInfo{
 				TaskType:  reducetask,
@@ -170,7 +169,7 @@ func (c *Coordinator) server() {
 func (c *Coordinator) Done() bool {
 	ret := false
 
-	if len(c.MapTasks.m) == 0 && len(c.ReduceTasks.r) == 0 {
+	if c.FilesetPointer >= len(c.Fileset) && len(c.MapTasks.m) == 0 && len(c.ReduceTasks.r) == 0 {
 		ret = true
 	}
 

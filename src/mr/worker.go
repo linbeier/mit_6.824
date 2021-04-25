@@ -38,9 +38,6 @@ func ihash(key string) int {
 func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 	//todo: call finish
 
-	var intermediate []KeyValue
-	var tempfiles []*os.File
-	var encoders []*json.Encoder
 	var tempdir string
 	var workinfo AssignReply
 	var callch = make(chan AssignReply)
@@ -63,8 +60,13 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 
 		switch workinfo.t.TaskType {
 		case maptask:
+
+			var intermediate []KeyValue
+			var tempfiles []*os.File
+			var encoders []*json.Encoder
+
 			for i := 0; i < workinfo.t.NReduce; i++ {
-				filename := filepath.Join(tempdir, "mr-"+strconv.Itoa(workinfo.t.TaskNum)+"-"+strconv.Itoa(i))
+				filename := filepath.Join(tempdir, "undone-mr-"+strconv.Itoa(workinfo.t.TaskNum)+"-"+strconv.Itoa(i)+"-")
 				file, err := ioutil.TempFile(tempdir, filename)
 				if err != nil {
 					fmt.Println(err)
@@ -88,18 +90,22 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 				tempfiles[i].Close()
 			}
 
+			for _, file := range tempfiles {
+				os.Rename(file.Name(), file.Name()[7:])
+			}
+
 		case reducetask:
 			var filenames []string
 
-			regstring := "mr-.-" + strconv.Itoa(workinfo.t.TaskNum)
+			regstring := "^mr-.-" + strconv.Itoa(workinfo.t.TaskNum) + "-"
 			Dirfiles, err := ioutil.ReadDir(tempdir)
 			if err != nil {
-
+				fmt.Println(err)
 			}
 			for _, file := range Dirfiles {
 				filenames = append(filenames, file.Name())
 			}
-			MatchedName := RegMatch(regstring, filenames)
+			MatchedName := RegPrefixMatch(regstring, filenames)
 
 			var kva map[string][]string
 			kva = make(map[string][]string)
@@ -108,7 +114,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 
 				file, err := os.Open(name)
 				if err != nil {
-
+					fmt.Println(err)
 				}
 				dec := json.NewDecoder(file)
 				for {
@@ -141,7 +147,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 	close(callch)
 }
 
-func RegMatch(regstring string, filenames []string) (reply []string) {
+func RegPrefixMatch(regstring string, filenames []string) (reply []string) {
 	for _, name := range filenames {
 		Matched, err := regexp.MatchString(regstring, name)
 		if err != nil {
