@@ -1,7 +1,6 @@
 package mr
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -127,14 +126,12 @@ func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 			}
 		}
 	}
-	fmt.Println(reply.T)
 
 	return nil
 }
 
 func (c *Coordinator) WorkFinish(args *FinishArgs, reply *FinishReply) error {
 	//map task finish
-	fmt.Println(args)
 	if args.TaskType == maptask {
 		c.MapTasks.mutex.Lock()
 		delete(c.MapTasks.m, args.TaskNum)

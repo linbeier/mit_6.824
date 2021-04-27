@@ -90,7 +90,6 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 			}
 
 			for _, file := range tempfiles {
-				fmt.Println(file.Name() + " -> " + tempdir + file.Name()[25:])
 				err = os.Rename(file.Name(), tempdir+"/"+file.Name()[25:])
 				if err != nil {
 					fmt.Println(err)
@@ -129,6 +128,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 					kva[kv.Key] = append(kva[kv.Key], kv.Value)
 				}
 				file.Close()
+				os.Remove(file.Name())
 			}
 			ofile, _ := os.Create("mr-out-" + strconv.Itoa(workinfo.T.TaskNum))
 			for k, v := range kva {
@@ -198,7 +198,7 @@ func MapWork(filename string, mapf func(string, string) []KeyValue) ([]KeyValue,
 	if err != nil {
 		log.Fatalf("cannot read %v", filename)
 	}
-	file.Close()
+	defer file.Close()
 	kva := mapf(filename, string(content))
 	intermediate = append(intermediate, kva...)
 
