@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -31,8 +32,6 @@ type Coordinator struct {
 	MapTasks MapTask
 
 	ReduceTasks ReduceTask
-
-	WorkerStatus []TaskInfo
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -41,18 +40,18 @@ type Coordinator struct {
 func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 	//map任务还未分配完全
 	if c.FilesetPointer < len(c.Fileset) {
-		reply.t = TaskInfo{
+		reply.T = TaskInfo{
 			TaskType:  maptask,
 			NReduce:   c.nReduce,
 			FileName:  c.Fileset[c.FilesetPointer],
 			TimeBegin: time.Now(),
 		}
 
-		reply.t.TaskNum = c.FilesetPointer
+		reply.T.TaskNum = c.FilesetPointer
 		c.MapTasks.mutex.Lock()
-		c.MapTasks.m[reply.t.TaskNum] = reply.t
-		c.MapTasks.mutex.Unlock()
+		c.MapTasks.m[reply.T.TaskNum] = reply.T
 		c.FilesetPointer++
+		c.MapTasks.mutex.Unlock()
 
 	} else if len(c.MapTasks.m) > 0 {
 		//map任务已分配完全，等待map任务全部完成
@@ -62,7 +61,7 @@ func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 		c.MapTasks.mutex.RLock()
 		for i, v := range c.MapTasks.m {
 			if timenow.Sub(v.TimeBegin) >= 60*time.Second {
-				reply.t = TaskInfo{
+				reply.T = TaskInfo{
 					TaskType:  maptask,
 					NReduce:   c.nReduce,
 					TaskNum:   i,
@@ -76,26 +75,26 @@ func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 		c.MapTasks.mutex.RUnlock()
 
 		if iternum == -1 {
-			reply.t = TaskInfo{
+			reply.T = TaskInfo{
 				TaskType: idle,
 			}
 		} else {
 			c.MapTasks.mutex.Lock()
-			c.MapTasks.m[iternum] = reply.t
+			c.MapTasks.m[iternum] = reply.T
 			c.MapTasks.mutex.Unlock()
 		}
 
 	} else {
 		//reduce task
 		if c.ReduceTasks.ReduceNum < c.nReduce {
-			reply.t = TaskInfo{
+			reply.T = TaskInfo{
 				TaskType:  reducetask,
 				NReduce:   c.nReduce,
 				TimeBegin: time.Now(),
 			}
-			reply.t.TaskNum = c.ReduceTasks.ReduceNum
+			reply.T.TaskNum = c.ReduceTasks.ReduceNum
 			c.ReduceTasks.mutex.Lock()
-			c.ReduceTasks.r[c.ReduceTasks.ReduceNum] = reply.t
+			c.ReduceTasks.r[c.ReduceTasks.ReduceNum] = reply.T
 			c.ReduceTasks.ReduceNum++
 			c.ReduceTasks.mutex.Unlock()
 		} else if len(c.ReduceTasks.r) > 0 {
@@ -105,7 +104,7 @@ func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 			c.ReduceTasks.mutex.RLock()
 			for i, v := range c.ReduceTasks.r {
 				if timenow.Sub(v.TimeBegin) >= 60*time.Second {
-					reply.t = TaskInfo{
+					reply.T = TaskInfo{
 						TaskType:  reducetask,
 						NReduce:   c.nReduce,
 						TaskNum:   i,
@@ -119,21 +118,23 @@ func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 
 			if iternum > -1 {
 				c.ReduceTasks.mutex.Lock()
-				c.ReduceTasks.r[iternum] = reply.t
+				c.ReduceTasks.r[iternum] = reply.T
 				c.ReduceTasks.mutex.Unlock()
 			}
 		} else {
-			reply.t = TaskInfo{
+			reply.T = TaskInfo{
 				TaskType: idle,
 			}
 		}
 	}
+	fmt.Println(reply.T)
 
 	return nil
 }
 
 func (c *Coordinator) WorkFinish(args *FinishArgs, reply *FinishReply) error {
 	//map task finish
+	fmt.Println(args)
 	if args.TaskType == maptask {
 		c.MapTasks.mutex.Lock()
 		delete(c.MapTasks.m, args.TaskNum)
@@ -169,9 +170,13 @@ func (c *Coordinator) server() {
 func (c *Coordinator) Done() bool {
 	ret := false
 
-	if c.FilesetPointer >= len(c.Fileset) && len(c.MapTasks.m) == 0 && len(c.ReduceTasks.r) == 0 {
+	c.ReduceTasks.mutex.RLock()
+	c.MapTasks.mutex.RLock()
+	if c.FilesetPointer >= len(c.Fileset) && len(c.MapTasks.m) == 0 && len(c.ReduceTasks.r) == 0 && c.ReduceTasks.ReduceNum == c.nReduce {
 		ret = true
 	}
+	c.MapTasks.mutex.RUnlock()
+	c.ReduceTasks.mutex.RUnlock()
 
 	return ret
 }
@@ -189,8 +194,10 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.FilesetPointer = 0
 	c.nReduce = nReduce
 
+	c.MapTasks = MapTask{}
 	c.MapTasks.m = make(map[int]TaskInfo)
 
+	c.ReduceTasks = ReduceTask{}
 	c.ReduceTasks.r = make(map[int]TaskInfo)
 	c.ReduceTasks.ReduceNum = 0
 

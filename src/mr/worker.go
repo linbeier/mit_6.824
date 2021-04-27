@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/rpc"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"time"
@@ -53,21 +52,21 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 	tempdir = "/tmp/intermediate"
 
 	//send an RPC to the coordinator asking for a task
-	callch <- CallAssign()
+	go CallAssign(callch)
 
 	// every task pair creates a tempfile, and rename by coordinator when all task finished
 	for workinfo = range callch {
 
-		switch workinfo.t.TaskType {
+		switch workinfo.T.TaskType {
 		case maptask:
 
 			var intermediate []KeyValue
 			var tempfiles []*os.File
 			var encoders []*json.Encoder
 
-			for i := 0; i < workinfo.t.NReduce; i++ {
-				filename := filepath.Join(tempdir, "undone-mr-"+strconv.Itoa(workinfo.t.TaskNum)+"-"+strconv.Itoa(i)+"-")
-				file, err := ioutil.TempFile(tempdir, filename)
+			for i := 0; i < workinfo.T.NReduce; i++ {
+
+				file, err := ioutil.TempFile(tempdir, "undone-mr-"+strconv.Itoa(workinfo.T.TaskNum)+"-"+strconv.Itoa(i)+"-")
 				if err != nil {
 					fmt.Println(err)
 				}
@@ -76,28 +75,32 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 				tempfiles = append(tempfiles, file)
 			}
 
-			kva, _ := MapWork(workinfo.t.FileName, mapf)
+			kva, _ := MapWork(workinfo.T.FileName, mapf)
 			intermediate = append(intermediate, kva...)
 
 			for _, kv := range intermediate {
-				err = encoders[ihash(kv.Key)].Encode(&kv)
+				err = encoders[ihash(kv.Key)%workinfo.T.NReduce].Encode(&kv)
 				if err != nil {
 					fmt.Println(err)
 				}
 			}
 
-			for i := 0; i < workinfo.t.NReduce; i++ {
+			for i := 0; i < workinfo.T.NReduce; i++ {
 				tempfiles[i].Close()
 			}
 
 			for _, file := range tempfiles {
-				os.Rename(file.Name(), file.Name()[7:])
+				fmt.Println(file.Name() + " -> " + tempdir + file.Name()[25:])
+				err = os.Rename(file.Name(), tempdir+"/"+file.Name()[25:])
+				if err != nil {
+					fmt.Println(err)
+				}
 			}
 
 		case reducetask:
 			var filenames []string
 
-			regstring := "^mr-.-" + strconv.Itoa(workinfo.t.TaskNum) + "-"
+			regstring := "^mr-.-" + strconv.Itoa(workinfo.T.TaskNum) + "-"
 			Dirfiles, err := ioutil.ReadDir(tempdir)
 			if err != nil {
 				fmt.Println(err)
@@ -112,7 +115,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 
 			for _, name := range MatchedName {
 
-				file, err := os.Open(name)
+				file, err := os.Open(tempdir + "/" + name)
 				if err != nil {
 					fmt.Println(err)
 				}
@@ -127,7 +130,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 				}
 				file.Close()
 			}
-			ofile, _ := os.Create("mr-out-" + strconv.Itoa(workinfo.t.TaskNum))
+			ofile, _ := os.Create("mr-out-" + strconv.Itoa(workinfo.T.TaskNum))
 			for k, v := range kva {
 				fmt.Fprintf(ofile, "%v %v\n", k, reducef(k, v))
 			}
@@ -138,11 +141,11 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 
 		}
 
-		CallFinish(workinfo.t.TaskNum, workinfo.t.TaskType)
+		CallFinish(workinfo.T.TaskType, workinfo.T.TaskNum)
 
 		time.Sleep(1 * time.Second)
 
-		callch <- CallAssign()
+		go CallAssign(callch)
 	}
 	close(callch)
 }
@@ -160,7 +163,7 @@ func RegPrefixMatch(regstring string, filenames []string) (reply []string) {
 	return
 }
 
-func CallAssign() AssignReply {
+func CallAssign(ReplyChan chan AssignReply) {
 
 	args := AssignArgs{}
 
@@ -168,7 +171,7 @@ func CallAssign() AssignReply {
 
 	call("Coordinator.Assign", &args, &reply)
 
-	return reply
+	ReplyChan <- reply
 }
 
 //todo: call finish

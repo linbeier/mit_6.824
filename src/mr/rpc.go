@@ -34,7 +34,7 @@ type AssignArgs struct {
 }
 
 type AssignReply struct {
-	t TaskInfo
+	T TaskInfo
 }
 
 type FinishArgs struct {
