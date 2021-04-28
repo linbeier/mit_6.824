@@ -35,9 +35,7 @@ func ihash(key string) int {
 // main/mrworker.go calls this function.
 //
 func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
-	//todo: call finish
 
-	var tempdir string
 	var workinfo AssignReply
 	var callch = make(chan AssignReply)
 
@@ -45,11 +43,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 	if err != nil {
 		fmt.Println(err)
 	}
-	err = os.Rename(dir, "/tmp/intermediate")
-	if err != nil {
-		fmt.Println(err)
-	}
-	tempdir = "/tmp/intermediate"
+	os.Rename(dir, "/tmp/intermediate")
 
 	//send an RPC to the coordinator asking for a task
 	go CallAssign(callch)
@@ -128,7 +122,6 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 					kva[kv.Key] = append(kva[kv.Key], kv.Value)
 				}
 				file.Close()
-				os.Remove(file.Name())
 			}
 			ofile, _ := os.Create("mr-out-" + strconv.Itoa(workinfo.T.TaskNum))
 			for k, v := range kva {

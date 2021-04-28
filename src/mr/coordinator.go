@@ -1,11 +1,14 @@
 package mr
 
 import (
+	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -38,7 +41,12 @@ type Coordinator struct {
 //
 func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 	//map任务还未分配完全
+	//data race
+	c.MapTasks.mutex.RLock()
 	if c.FilesetPointer < len(c.Fileset) {
+
+		c.MapTasks.mutex.RUnlock()
+
 		reply.T = TaskInfo{
 			TaskType:  maptask,
 			NReduce:   c.nReduce,
@@ -51,15 +59,18 @@ func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 		c.MapTasks.m[reply.T.TaskNum] = reply.T
 		c.FilesetPointer++
 		c.MapTasks.mutex.Unlock()
-
+		//data race
 	} else if len(c.MapTasks.m) > 0 {
+
+		c.MapTasks.mutex.RUnlock()
+
 		//map任务已分配完全，等待map任务全部完成
 		iternum := -1
 		timenow := time.Now()
 
 		c.MapTasks.mutex.RLock()
 		for i, v := range c.MapTasks.m {
-			if timenow.Sub(v.TimeBegin) >= 60*time.Second {
+			if timenow.Sub(v.TimeBegin) >= 10*time.Second {
 				reply.T = TaskInfo{
 					TaskType:  maptask,
 					NReduce:   c.nReduce,
@@ -85,7 +96,15 @@ func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 
 	} else {
 		//reduce task
+		//data race
+
+		c.MapTasks.mutex.RUnlock()
+		c.ReduceTasks.mutex.RLock()
+
 		if c.ReduceTasks.ReduceNum < c.nReduce {
+
+			c.ReduceTasks.mutex.RUnlock()
+
 			reply.T = TaskInfo{
 				TaskType:  reducetask,
 				NReduce:   c.nReduce,
@@ -96,13 +115,17 @@ func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 			c.ReduceTasks.r[c.ReduceTasks.ReduceNum] = reply.T
 			c.ReduceTasks.ReduceNum++
 			c.ReduceTasks.mutex.Unlock()
+			//data race
 		} else if len(c.ReduceTasks.r) > 0 {
+
+			c.ReduceTasks.mutex.RUnlock()
+
 			iternum := -1
 			timenow := time.Now()
 
 			c.ReduceTasks.mutex.RLock()
 			for i, v := range c.ReduceTasks.r {
-				if timenow.Sub(v.TimeBegin) >= 60*time.Second {
+				if timenow.Sub(v.TimeBegin) >= 10*time.Second {
 					reply.T = TaskInfo{
 						TaskType:  reducetask,
 						NReduce:   c.nReduce,
@@ -121,6 +144,9 @@ func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 				c.ReduceTasks.mutex.Unlock()
 			}
 		} else {
+
+			c.ReduceTasks.mutex.RUnlock()
+
 			reply.T = TaskInfo{
 				TaskType: idle,
 			}
@@ -140,6 +166,25 @@ func (c *Coordinator) WorkFinish(args *FinishArgs, reply *FinishReply) error {
 		c.ReduceTasks.mutex.Lock()
 		delete(c.ReduceTasks.r, args.TaskNum)
 		c.ReduceTasks.mutex.Unlock()
+
+		var filenames []string
+
+		regstring := "^mr-.-" + strconv.Itoa(args.TaskNum) + "-"
+		Dirfiles, err := ioutil.ReadDir(tempdir)
+		if err != nil {
+			fmt.Println(err)
+		}
+		for _, file := range Dirfiles {
+			filenames = append(filenames, file.Name())
+		}
+		MatchedName := RegPrefixMatch(regstring, filenames)
+
+		for _, name := range MatchedName {
+			err = os.Remove(name)
+			if err != nil {
+				fmt.Println(err)
+			}
+		}
 	}
 	return nil
 }
