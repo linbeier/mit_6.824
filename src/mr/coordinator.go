@@ -110,7 +110,11 @@ func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 				NReduce:   c.nReduce,
 				TimeBegin: time.Now(),
 			}
+
+			c.ReduceTasks.mutex.RLock()
 			reply.T.TaskNum = c.ReduceTasks.ReduceNum
+			c.ReduceTasks.mutex.RUnlock()
+
 			c.ReduceTasks.mutex.Lock()
 			c.ReduceTasks.r[c.ReduceTasks.ReduceNum] = reply.T
 			c.ReduceTasks.ReduceNum++
@@ -180,7 +184,7 @@ func (c *Coordinator) WorkFinish(args *FinishArgs, reply *FinishReply) error {
 		MatchedName := RegPrefixMatch(regstring, filenames)
 
 		for _, name := range MatchedName {
-			err = os.Remove(name)
+			err = os.Remove(tempdir + "/" + name)
 			if err != nil {
 				fmt.Println(err)
 			}
