@@ -66,8 +66,8 @@ type Raft struct {
 	currentState int //current state of this server
 	currentTerm  int //last term server has seen ----------- is integer enough for Term?
 	votedFor     int //candidateId that receives vote in current term
-	newTerm      bool
-	log          []LogEntry //log entires; each entry contains command for state machines and term when entry was received by leader
+	// newTerm      bool
+	log []LogEntry //log entires; each entry contains command for state machines and term when entry was received by leader
 
 	//variables about log states
 	commitIndex int //index of highest log entry to be commited
@@ -79,8 +79,9 @@ type Raft struct {
 
 	electTimer *time.Timer
 
-	revAppendEntry chan int
-	revRequestVote chan int
+	revAppendEntry  chan int
+	revRequestVote  chan int
+	convertFollower chan int
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
@@ -173,7 +174,7 @@ func (rf *Raft) AppendEntry(args *AppendEtryArgs, reply *AppendEtryReply) {
 		reply.Term = rf.currentTerm
 		reply.Success = true
 		if rf.currentState != Follower {
-			rf.newTerm = true
+			rf.convertFollower <- args.Term
 		}
 		rf.revAppendEntry <- args.Term
 	}
@@ -196,7 +197,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.votedFor = args.CandidateId
 		rf.currentTerm = args.Term
 		if rf.currentState != Follower {
-			rf.newTerm = true
+			rf.convertFollower <- args.Term
 		}
 		reply.Term = rf.currentTerm
 		reply.VoteGranted = true
@@ -253,12 +254,28 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 		"server":   server,
 		"request":  *args,
 		"reply":    *reply,
-	}).Info("RequestVote")
+	}).Info("send RequestVote")
+	rf.mu.Lock()
+	if reply.Term > rf.currentTerm {
+		rf.convertFollower <- reply.Term
+	}
+	rf.mu.Unlock()
 	return ok
 }
 
 func (rf *Raft) sendAppendEntry(server int, args *AppendEtryArgs, reply *AppendEtryReply) bool {
 	ok := rf.peers[server].Call("Raft.AppendEntry", args, reply)
+	logrus.WithFields(logrus.Fields{
+		"received": ok,
+		"server":   server,
+		"request":  *args,
+		"reply":    *reply,
+	}).Info("send AppendEntry")
+	rf.mu.Lock()
+	if reply.Term > rf.currentTerm {
+		rf.convertFollower <- reply.Term
+	}
+	rf.mu.Unlock()
 	return ok
 }
 
@@ -321,8 +338,8 @@ func (rf *Raft) Candidate() {
 	rf.mu.Unlock()
 
 	VoteNum := 1
-	toLeader := make(chan bool)
-	toFollower := make(chan bool)
+	convertLeader := make(chan bool)
+	// toFollower := make(chan bool)
 
 	var mutex sync.Mutex
 
@@ -330,7 +347,7 @@ func (rf *Raft) Candidate() {
 
 	for i := range rf.peers {
 		if i != rf.me {
-			go func(i int, toFollower chan bool) {
+			go func(i int) {
 				rf.mu.Lock()
 				reply := &RequestVoteReply{}
 				args := &RequestVoteArgs{
@@ -349,19 +366,19 @@ func (rf *Raft) Candidate() {
 						"LastLogTerm":  args.LastLogTerm,
 					}).Warn("No respnse in sendRequestVote!")
 				}
-				if reply.Term > rf.currentTerm {
-					toFollower <- true
-					return
-				}
+				// if reply.Term > rf.currentTerm {
+				// 	toFollower <- true
+				// 	return
+				// }
 				if reply.VoteGranted == true {
 					mutex.Lock()
 					VoteNum++
 					if VoteNum > len(rf.peers)/2 {
-						toLeader <- true
+						convertLeader <- true
 					}
 					mutex.Unlock()
 				}
-			}(i, toFollower)
+			}(i)
 		}
 	}
 
@@ -392,35 +409,7 @@ func (rf *Raft) Candidate() {
 			mutex.Unlock()
 			go rf.Candidate()
 			return
-		case <-rf.revRequestVote:
-			rf.mu.Lock()
-			mutex.Lock()
-			if rf.newTerm {
-				logrus.WithFields(logrus.Fields{
-					"me":      rf.me,
-					"term":    rf.currentTerm,
-					"voteNum": VoteNum,
-				}).Info("Transit to follower")
-				mutex.Unlock()
-				rf.mu.Unlock()
-				go rf.Follower()
-				return
-			}
-			mutex.Unlock()
-			rf.mu.Unlock()
-		case <-toLeader:
-			mutex.Lock()
-			rf.mu.Lock()
-			logrus.WithFields(logrus.Fields{
-				"me":      rf.me,
-				"term":    rf.currentTerm,
-				"voteNum": VoteNum,
-			}).Info("Transit to Leader")
-			rf.mu.Unlock()
-			mutex.Unlock()
-			go rf.Leader()
-			return
-		case <-toFollower:
+		case <-rf.convertFollower:
 			rf.mu.Lock()
 			mutex.Lock()
 			logrus.WithFields(logrus.Fields{
@@ -432,6 +421,18 @@ func (rf *Raft) Candidate() {
 			rf.mu.Unlock()
 			go rf.Follower()
 			return
+		case <-convertLeader:
+			mutex.Lock()
+			rf.mu.Lock()
+			logrus.WithFields(logrus.Fields{
+				"me":      rf.me,
+				"term":    rf.currentTerm,
+				"voteNum": VoteNum,
+			}).Info("Transit to Leader")
+			rf.mu.Unlock()
+			mutex.Unlock()
+			go rf.Leader()
+			return
 		}
 	}
 }
@@ -439,7 +440,7 @@ func (rf *Raft) Candidate() {
 func (rf *Raft) Follower() {
 	rf.mu.Lock()
 	rf.currentState = Follower
-	rf.newTerm = false
+	// rf.newTerm = false
 	rf.mu.Unlock()
 
 	go rf.ticker()
@@ -456,40 +457,36 @@ func (rf *Raft) Leader() {
 	go func(close *bool, quit chan bool) {
 		for {
 			select {
-			case <-rf.revAppendEntry:
+			case <-rf.convertFollower:
 				mutex.Lock()
 				rf.mu.Lock()
-				if rf.newTerm {
-					*close = true
-					logrus.WithFields(logrus.Fields{
-						"me":    rf.me,
-						"State": rf.currentState,
-						"term":  rf.currentTerm,
-					}).Info("Transit to follower")
-					go rf.Follower()
-					rf.mu.Unlock()
-					mutex.Unlock()
-					return
-				}
+				*close = true
+				logrus.WithFields(logrus.Fields{
+					"me":    rf.me,
+					"State": rf.currentState,
+					"term":  rf.currentTerm,
+				}).Info("Transit to follower")
+				go rf.Follower()
 				rf.mu.Unlock()
 				mutex.Unlock()
-			case <-rf.revRequestVote:
-				mutex.Lock()
-				rf.mu.Lock()
-				if rf.newTerm {
-					*close = true
-					logrus.WithFields(logrus.Fields{
-						"me":    rf.me,
-						"State": rf.currentState,
-						"term":  rf.currentTerm,
-					}).Info("Transit to follower")
-					go rf.Follower()
-					rf.mu.Unlock()
-					mutex.Unlock()
-					return
-				}
-				rf.mu.Unlock()
-				mutex.Unlock()
+				return
+			// case <-rf.revRequestVote:
+			// 	mutex.Lock()
+			// 	rf.mu.Lock()
+			// 	if rf.newTerm {
+			// 		*close = true
+			// 		logrus.WithFields(logrus.Fields{
+			// 			"me":    rf.me,
+			// 			"State": rf.currentState,
+			// 			"term":  rf.currentTerm,
+			// 		}).Info("Transit to follower")
+			// 		go rf.Follower()
+			// 		rf.mu.Unlock()
+			// 		mutex.Unlock()
+			// 		return
+			// 	}
+			// 	rf.mu.Unlock()
+			// 	mutex.Unlock()
 			case <-quit:
 				return
 			}
@@ -559,13 +556,14 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.currentState = Follower
 	rf.currentTerm = 0
 	rf.votedFor = -1
-	rf.newTerm = false
+	// rf.newTerm = false
 
 	rf.commitIndex = -1
 	rf.lastApplied = -1
 
 	rf.revAppendEntry = make(chan int)
 	rf.revRequestVote = make(chan int)
+	rf.convertFollower = make(chan int)
 
 	// logfile, _ := os.Open("log")
 	// println(ok)
