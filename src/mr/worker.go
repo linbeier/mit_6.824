@@ -39,16 +39,16 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 	var workinfo AssignReply
 	var callch = make(chan AssignReply)
 
-	dir, err := ioutil.TempDir("", "intermediate")
-	if err != nil {
-		fmt.Println(err)
-	}
-	os.Rename(dir, "/tmp/intermediate")
+	//dir, err := ioutil.TempDir("", "intermediate")
+	//if err != nil {
+	//	fmt.Println(err)
+	//}
+	//os.Rename(dir, "/tmp/intermediate")
 
 	//send an RPC to the coordinator asking for a task
 	go CallAssign(callch)
 
-	// every task pair creates a tempfile, and rename by coordinator when all task finished
+	// every task pair creates a file, and rename by coordinator when all task finished
 	for workinfo = range callch {
 
 		switch workinfo.T.TaskType {
@@ -73,7 +73,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 			intermediate = append(intermediate, kva...)
 
 			for _, kv := range intermediate {
-				err = encoders[ihash(kv.Key)%workinfo.T.NReduce].Encode(&kv)
+				err := encoders[ihash(kv.Key)%workinfo.T.NReduce].Encode(&kv)
 				if err != nil {
 					fmt.Println(err)
 				}
@@ -84,7 +84,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 			}
 
 			for _, file := range tempfiles {
-				err = os.Rename(file.Name(), tempdir+"/"+file.Name()[25:])
+				err := os.Rename(file.Name(), tempdir+"/"+file.Name()[25:])
 				if err != nil {
 					fmt.Println(err)
 				}

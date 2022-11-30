@@ -2,3 +2,10 @@ pkg/
 api.key
 .api.key.trimmed
 *-handin.tar.gz
+*.vscode/
+bin/
+*log
+.idea/
+*.DS_Store/
+src/main/mr-out-*
+

@@ -9,7 +9,10 @@ package main
 // Please do not change this file.
 //
 
-import "6.824/mr"
+import (
+	"6.824/mr"
+	"io/ioutil"
+)
 import "time"
 import "os"
 import "fmt"
@@ -19,6 +22,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage: mrcoordinator inputfiles...\n")
 		os.Exit(1)
 	}
+
+	dir, err := ioutil.TempDir("", "intermediate")
+	if err != nil {
+		fmt.Println(err)
+	}
+	os.Rename(dir, "/tmp/intermediate")
+	defer os.RemoveAll("/tmp/intermediate")
 
 	m := mr.MakeCoordinator(os.Args[1:], 10)
 	for m.Done() == false {
