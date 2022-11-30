@@ -6,6 +6,7 @@ api.key
 bin/
 *log
 .idea/
-*.DS_Store/
+.DS_Store
+.DS_Store?
 src/main/mr-out-*
 
