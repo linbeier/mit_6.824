@@ -20,6 +20,7 @@ package raft
 import (
 	//	"bytes"
 
+	"math/rand"
 	"sync"
 	"time"
 
@@ -97,7 +98,7 @@ func (rf *Raft) GetState() (int, bool) {
 	// Your code here (2A).
 	rf.mu.Lock()
 	term = rf.currentTerm
-	isleader = (rf.currentState == Leader)
+	isleader = rf.currentState == Leader
 	rf.mu.Unlock()
 	return term, isleader
 }
@@ -165,22 +166,27 @@ func (rf *Raft) AppendEntry(args *AppendEtryArgs, reply *AppendEtryReply) {
 	if args.Term < rf.currentTerm {
 		reply.Term = rf.currentTerm
 		reply.Success = false
-	} else if args.Term == rf.currentTerm {
-		reply.Term = rf.currentTerm
-		reply.Success = true
-		rf.revAppendEntry <- args.Term
+		//} else if args.Term == rf.currentTerm {
+		//	reply.Term = rf.currentTerm
+		//	reply.Success = true
+		//	//log receive append entry
+		//	rf.revAppendEntry <- args.Term
+		//	rf.ResetTimeOut()
 	} else {
 		rf.currentTerm = args.Term
 		reply.Term = rf.currentTerm
 		reply.Success = true
 		if rf.currentState != Follower {
+			//follower will reset timer
 			rf.convertFollower <- args.Term
+		} else {
+			rf.ResetTimeOut()
 		}
 		rf.revAppendEntry <- args.Term
 	}
 	logrus.WithFields(logrus.Fields{
-		"term":    rf.currentTerm,
 		"me":      rf.me,
+		"term":    rf.currentTerm,
 		"request": *args,
 		"reply":   *reply,
 	}).Info("AppendEntry Received")
@@ -201,17 +207,18 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		}
 		reply.Term = rf.currentTerm
 		reply.VoteGranted = true
-	} else if args.Term == rf.currentTerm && rf.votedFor == args.CandidateId {
-		reply.Term = rf.currentTerm
-		reply.VoteGranted = true
+		rf.ResetTimeOut()
+		//} else if args.Term == rf.currentTerm && rf.votedFor == args.CandidateId {
+		//	reply.Term = rf.currentTerm
+		//	reply.VoteGranted = true
 	} else {
 		reply.Term = rf.currentTerm
 		reply.VoteGranted = false
 	}
 	rf.mu.Unlock()
 	logrus.WithFields(logrus.Fields{
-		"term":    rf.currentTerm,
 		"me":      rf.me,
+		"term":    rf.currentTerm,
 		"request": *args,
 		"reply":   *reply,
 	}).Info("RequestVote Received")
@@ -250,6 +257,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	logrus.WithFields(logrus.Fields{
+		"me":       rf.me,
 		"received": ok,
 		"server":   server,
 		"request":  *args,
@@ -258,6 +266,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	rf.mu.Lock()
 	if reply.Term > rf.currentTerm {
 		rf.convertFollower <- reply.Term
+		rf.currentTerm = reply.Term
 	}
 	rf.mu.Unlock()
 	return ok
@@ -266,6 +275,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 func (rf *Raft) sendAppendEntry(server int, args *AppendEtryArgs, reply *AppendEtryReply) bool {
 	ok := rf.peers[server].Call("Raft.AppendEntry", args, reply)
 	logrus.WithFields(logrus.Fields{
+		"me":       rf.me,
 		"received": ok,
 		"server":   server,
 		"request":  *args,
@@ -274,6 +284,8 @@ func (rf *Raft) sendAppendEntry(server int, args *AppendEtryArgs, reply *AppendE
 	rf.mu.Lock()
 	if reply.Term > rf.currentTerm {
 		rf.convertFollower <- reply.Term
+		//TODO: correct?
+		rf.currentTerm = reply.Term
 	}
 	rf.mu.Unlock()
 	return ok
@@ -317,7 +329,7 @@ func (rf *Raft) ticker() {
 		case <-rf.revRequestVote:
 			rf.ResetTimeOut()
 		case <-rf.electTimer.C:
-			rf.electTimer.Stop()
+			//rf.electTimer.Stop()
 			go rf.Candidate()
 			return
 		}
@@ -325,23 +337,12 @@ func (rf *Raft) ticker() {
 	}
 }
 
-//when candidate receives AppendEntry RPC, it convert to follower
-func (rf *Raft) Candidate() {
+func (rf *Raft) startElect(VoteNum *int, convertLeader chan bool, LeaderState *bool, mutex *sync.Mutex) {
+
 	rf.mu.Lock()
-	rf.currentState = Candidate
 	rf.currentTerm++
 	rf.votedFor = rf.me
-	logrus.WithFields(logrus.Fields{
-		"Term": rf.currentTerm,
-		"me":   rf.me,
-	}).Info("Follower timeout, transit to candidate")
 	rf.mu.Unlock()
-
-	VoteNum := 1
-	convertLeader := make(chan bool)
-	// toFollower := make(chan bool)
-
-	var mutex sync.Mutex
 
 	rf.ResetTimeOut()
 
@@ -360,11 +361,13 @@ func (rf *Raft) Candidate() {
 				ok := rf.sendRequestVote(i, args, reply)
 				if !ok {
 					logrus.WithFields(logrus.Fields{
+						"me":           rf.me,
 						"Term":         args.Term,
 						"CandidateId":  args.CandidateId,
 						"LastLogIndex": args.LastLogIndex,
 						"LastLogTerm":  args.LastLogTerm,
 					}).Warn("No respnse in sendRequestVote!")
+					return
 				}
 				// if reply.Term > rf.currentTerm {
 				// 	toFollower <- true
@@ -372,15 +375,38 @@ func (rf *Raft) Candidate() {
 				// }
 				if reply.VoteGranted == true {
 					mutex.Lock()
-					VoteNum++
-					if VoteNum > len(rf.peers)/2 {
+					*VoteNum++
+					// only one routine will send to convert leader channel
+					rf.mu.Lock()
+					if *VoteNum > len(rf.peers)/2 && *LeaderState == false && rf.currentState == Candidate {
 						convertLeader <- true
+						*LeaderState = true
 					}
+					rf.mu.Unlock()
 					mutex.Unlock()
 				}
 			}(i)
 		}
 	}
+}
+
+//when candidate receives AppendEntry RPC, it convert to follower
+func (rf *Raft) Candidate() {
+	rf.mu.Lock()
+	rf.currentState = Candidate
+	logrus.WithFields(logrus.Fields{
+		"me":   rf.me,
+		"Term": rf.currentTerm,
+	}).Info("Follower timeout, transit to candidate")
+	rf.mu.Unlock()
+
+	VoteNum := 1
+	convertLeader := make(chan bool)
+	LeaderState := false
+
+	var mutex sync.Mutex
+
+	rf.startElect(&VoteNum, convertLeader, &LeaderState, &mutex)
 
 	for rf.killed() == false {
 		select {
@@ -391,13 +417,20 @@ func (rf *Raft) Candidate() {
 				"me":      rf.me,
 				"term":    rf.currentTerm,
 				"voteNum": VoteNum,
-			}).Info("Transit to follower")
+			}).Info("Received AppendEntry")
 			rf.mu.Unlock()
 			mutex.Unlock()
-			go rf.Follower()
+			//go rf.Follower()
 			return
+		case <-rf.revRequestVote:
+
 		case <-rf.electTimer.C:
 			//re-elect when timeout
+			VoteNum = 1
+			convertLeader = make(chan bool)
+			LeaderState = false
+			rf.startElect(&VoteNum, convertLeader, &LeaderState, &mutex)
+
 			mutex.Lock()
 			rf.mu.Lock()
 			logrus.WithFields(logrus.Fields{
@@ -407,9 +440,10 @@ func (rf *Raft) Candidate() {
 			}).Info("Election timeout, re-elect")
 			rf.mu.Unlock()
 			mutex.Unlock()
-			go rf.Candidate()
-			return
+
 		case <-rf.convertFollower:
+			go rf.Follower()
+
 			rf.mu.Lock()
 			mutex.Lock()
 			logrus.WithFields(logrus.Fields{
@@ -419,9 +453,10 @@ func (rf *Raft) Candidate() {
 			}).Info("Transit to follower")
 			mutex.Unlock()
 			rf.mu.Unlock()
-			go rf.Follower()
 			return
 		case <-convertLeader:
+			go rf.Leader()
+
 			mutex.Lock()
 			rf.mu.Lock()
 			logrus.WithFields(logrus.Fields{
@@ -431,7 +466,6 @@ func (rf *Raft) Candidate() {
 			}).Info("Transit to Leader")
 			rf.mu.Unlock()
 			mutex.Unlock()
-			go rf.Leader()
 			return
 		}
 	}
@@ -443,7 +477,26 @@ func (rf *Raft) Follower() {
 	// rf.newTerm = false
 	rf.mu.Unlock()
 
-	go rf.ticker()
+	//go rf.ticker()
+	rf.ResetTimeOut()
+	for rf.killed() == false {
+		// Your code here to check if a leader election should
+		// be started and to randomize sleeping time using
+		// time.Sleep().
+		select {
+		case <-rf.convertFollower:
+			rf.ResetTimeOut()
+		case <-rf.revAppendEntry:
+			rf.ResetTimeOut()
+		case <-rf.revRequestVote:
+			rf.ResetTimeOut()
+		case <-rf.electTimer.C:
+			//rf.electTimer.Stop()
+			go rf.Candidate()
+			return
+		}
+
+	}
 }
 
 func (rf *Raft) Leader() {
@@ -451,60 +504,39 @@ func (rf *Raft) Leader() {
 	rf.currentState = Leader
 	rf.mu.Unlock()
 
-	var mutex sync.Mutex
-	close := false
 	quit := make(chan bool)
-	go func(close *bool, quit chan bool) {
-		for {
+	go func(quit chan bool) {
+		for rf.killed() == false {
 			select {
-			case <-rf.convertFollower:
-				mutex.Lock()
+			case <-rf.revAppendEntry:
 				rf.mu.Lock()
-				*close = true
+				logrus.WithFields(logrus.Fields{
+					"me":   rf.me,
+					"term": rf.currentTerm,
+				}).Info("Received AppendEntry")
+				rf.mu.Unlock()
+			case <-rf.revRequestVote:
+
+			case <-rf.convertFollower:
+				rf.mu.Lock()
 				logrus.WithFields(logrus.Fields{
 					"me":    rf.me,
 					"State": rf.currentState,
 					"term":  rf.currentTerm,
 				}).Info("Transit to follower")
-				go rf.Follower()
 				rf.mu.Unlock()
-				mutex.Unlock()
-				return
-			// case <-rf.revRequestVote:
-			// 	mutex.Lock()
-			// 	rf.mu.Lock()
-			// 	if rf.newTerm {
-			// 		*close = true
-			// 		logrus.WithFields(logrus.Fields{
-			// 			"me":    rf.me,
-			// 			"State": rf.currentState,
-			// 			"term":  rf.currentTerm,
-			// 		}).Info("Transit to follower")
-			// 		go rf.Follower()
-			// 		rf.mu.Unlock()
-			// 		mutex.Unlock()
-			// 		return
-			// 	}
-			// 	rf.mu.Unlock()
-			// 	mutex.Unlock()
-			case <-quit:
+				quit <- true
 				return
 			}
 
 		}
-	}(&close, quit)
+	}(quit)
 
-	defer func() {
-		quit <- true
-	}()
+	tiker := time.NewTicker(100 * time.Millisecond)
+	defer tiker.Stop()
+
 	//Heartbeat
 	for rf.killed() == false {
-		mutex.Lock()
-		if close {
-			mutex.Unlock()
-			return
-		}
-		mutex.Unlock()
 
 		rf.mu.Lock()
 		args := &AppendEtryArgs{
@@ -514,23 +546,32 @@ func (rf *Raft) Leader() {
 		rf.mu.Unlock()
 		reply := &AppendEtryReply{}
 
-		for i, _ := range rf.peers {
-			if i != rf.me {
-				ok := rf.sendAppendEntry(i, args, reply)
-				if !ok {
-					logrus.WithFields(logrus.Fields{
-						"Term":     args.Term,
-						"LeaderId": args.LeaderId,
-					}).Warn("Heart Beat no Response")
-				} else {
-					logrus.WithFields(logrus.Fields{
-						"Term":     args.Term,
-						"LeaderId": args.LeaderId,
-					}).Info("Heart Beat Response:", *reply)
+		select {
+		case <-quit:
+			go rf.Follower()
+			return
+		case <-tiker.C:
+			for i, _ := range rf.peers {
+				if i != rf.me {
+					go func(i int, args *AppendEtryArgs, reply *AppendEtryReply) {
+						ok := rf.sendAppendEntry(i, args, reply)
+						if !ok {
+							logrus.WithFields(logrus.Fields{
+								"to":       i,
+								"Term":     args.Term,
+								"LeaderId": args.LeaderId,
+							}).Warn("Heart Beat no Response")
+						} else {
+							logrus.WithFields(logrus.Fields{
+								"to":       i,
+								"Term":     args.Term,
+								"LeaderId": args.LeaderId,
+							}).Info("Heart Beat Response:", *reply)
+						}
+					}(i, args, reply)
 				}
 			}
 		}
-		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -551,6 +592,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
+	rand.Seed(time.Now().UnixNano())
 
 	// Your initialization code here (2A, 2B, 2C).
 	rf.currentState = Follower

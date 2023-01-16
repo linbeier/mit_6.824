@@ -57,9 +57,17 @@ type AppendEtryReply struct {
 
 func (rf *Raft) ResetTimeOut() {
 	if rf.electTimer == nil {
-		rf.electTimer = time.NewTimer(time.Duration((rand.Intn(200))+150) * time.Millisecond)
+		rf.electTimer = time.NewTimer(time.Duration((rand.Intn(400))+200) * time.Millisecond)
 	} else {
-		rf.electTimer.Reset(time.Duration((rand.Intn(200))+150) * time.Millisecond)
+		if !rf.electTimer.Stop() {
+			select {
+			case <-rf.electTimer.C:
+				break
+			default:
+				break
+			}
+		}
+		rf.electTimer.Reset(time.Duration((rand.Intn(400))+200) * time.Millisecond)
 	}
 }
 

@@ -160,12 +160,14 @@ func (c *Coordinator) Assign(args *AssignArgs, reply *AssignReply) error {
 	return nil
 }
 
+// WorkFinish TODO: better not use delete
 func (c *Coordinator) WorkFinish(args *FinishArgs, reply *FinishReply) error {
 	//map task finish
 	if args.TaskType == maptask {
 		c.MapTasks.mutex.Lock()
 		delete(c.MapTasks.m, args.TaskNum)
 		c.MapTasks.mutex.Unlock()
+		//reduce task finish
 	} else if args.TaskType == reducetask {
 		c.ReduceTasks.mutex.Lock()
 		delete(c.ReduceTasks.r, args.TaskNum)
@@ -178,6 +180,7 @@ func (c *Coordinator) WorkFinish(args *FinishArgs, reply *FinishReply) error {
 		if err != nil {
 			fmt.Println(err)
 		}
+		//TODO:match file by file, each time match one
 		for _, file := range Dirfiles {
 			filenames = append(filenames, file.Name())
 		}
