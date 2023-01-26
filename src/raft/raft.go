@@ -191,7 +191,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	if args.Term >= term {
 		rf.votedFor = args.CandidateId
 		rf.setTerm(args.Term)
-		if rf.currentState != Follower {
+		if rf.getState() != Follower {
 			rf.setState(Follower)
 		}
 		reply.Term = args.Term
@@ -390,12 +390,13 @@ func (rf *Raft) Candidate() {
 
 		case <-rf.electTimer.C:
 			//re-elect when timeout
+			mutex.Lock()
 			logrus.WithFields(logrus.Fields{
 				"me":      rf.me,
 				"term":    rf.getTerm(),
 				"voteNum": VoteNum,
 			}).Info("Election timeout, re-elect")
-
+			mutex.Unlock()
 			VoteNum = 1
 			rf.startElect(&VoteNum, &mutex)
 
@@ -463,19 +464,19 @@ func (rf *Raft) Leader() {
 	tiker := time.NewTicker(200 * time.Millisecond)
 	defer tiker.Stop()
 
-	args := &AppendEtryArgs{
+	args := AppendEtryArgs{
 		Term:     rf.getTerm(),
 		LeaderId: rf.me,
 	}
-	reply := &AppendEtryReply{}
+	reply := AppendEtryReply{}
 
 	for rf.killed() == false && rf.getState() == Leader {
 		select {
 		case <-tiker.C:
 			for i, _ := range rf.peers {
 				if i != rf.me {
-					go func(i int, args *AppendEtryArgs, reply *AppendEtryReply) {
-						ok := rf.sendAppendEntry(i, args, reply)
+					go func(i int, args AppendEtryArgs, reply AppendEtryReply) {
+						ok := rf.sendAppendEntry(i, &args, &reply)
 						if !ok {
 							logrus.WithFields(logrus.Fields{
 								"to":       i,
@@ -487,7 +488,7 @@ func (rf *Raft) Leader() {
 								"to":       i,
 								"Term":     args.Term,
 								"LeaderId": args.LeaderId,
-							}).Info("Heart Beat Response:", *reply)
+							}).Info("Heart Beat Response:", reply)
 						}
 					}(i, args, reply)
 				}
