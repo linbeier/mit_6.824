@@ -176,7 +176,7 @@ func (rf *Raft) AppendEntry(args *AppendEtryArgs, reply *AppendEtryReply) {
 	}
 	logrus.WithFields(logrus.Fields{
 		"me":      rf.me,
-		"term":    term,
+		"term":    rf.getTerm(),
 		"request": *args,
 		"reply":   *reply,
 	}).Info("AppendEntry Received")
@@ -203,7 +203,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 	logrus.WithFields(logrus.Fields{
 		"me":      rf.me,
-		"term":    term,
+		"term":    rf.getTerm(),
 		"request": *args,
 		"reply":   *reply,
 	}).Info("RequestVote Received")
@@ -368,11 +368,10 @@ func (rf *Raft) startElect(VoteNum *int, mutex *sync.Mutex) {
 func (rf *Raft) Candidate() {
 	rf.setState(Candidate)
 
-	term := rf.getTerm()
 	logrus.WithFields(logrus.Fields{
 		"me":   rf.me,
-		"Term": term,
-	}).Info("Follower timeout, transit to candidate")
+		"Term": rf.getTerm(),
+	}).Info("Convert to Candidate")
 
 	VoteNum := 1
 
@@ -400,33 +399,10 @@ func (rf *Raft) Candidate() {
 			VoteNum = 1
 			rf.startElect(&VoteNum, &mutex)
 
-			//case <-rf.convertFollower:
-			//	go rf.Follower()
-			//
-			//	rf.mu.Lock()
-			//	mutex.Lock()
-			//	logrus.WithFields(logrus.Fields{
-			//		"me":      rf.me,
-			//		"term":    rf.currentTerm,
-			//		"voteNum": VoteNum,
-			//	}).Info("Transit to follower")
-			//	mutex.Unlock()
-			//	rf.mu.Unlock()
-			//	return
-			//case <-convertLeader:
-			//	go rf.Leader()
-			//
-			//	mutex.Lock()
-			//	rf.mu.Lock()
-			//	logrus.WithFields(logrus.Fields{
-			//		"me":      rf.me,
-			//		"term":    rf.currentTerm,
-			//		"voteNum": VoteNum,
-			//	}).Info("Transit to Leader")
-			//	rf.mu.Unlock()
-			//	mutex.Unlock()
-			//	return
 		}
+	}
+	if rf.killed() {
+		return
 	}
 
 	switch rf.getState() {
@@ -441,6 +417,11 @@ func (rf *Raft) Candidate() {
 
 func (rf *Raft) Follower() {
 	rf.setState(Follower)
+
+	logrus.WithFields(logrus.Fields{
+		"me":   rf.me,
+		"Term": rf.getTerm(),
+	}).Info("Convert to Follower")
 
 	rf.ResetTimeOut()
 	for rf.killed() == false && rf.getState() == Follower {
@@ -457,6 +438,9 @@ func (rf *Raft) Follower() {
 			break
 		}
 	}
+	if rf.killed() {
+		return
+	}
 
 	switch rf.getState() {
 	case Leader:
@@ -471,6 +455,10 @@ func (rf *Raft) Follower() {
 func (rf *Raft) Leader() {
 
 	rf.setState(Leader)
+	logrus.WithFields(logrus.Fields{
+		"me":   rf.me,
+		"Term": rf.getTerm(),
+	}).Info("Convert to Leader")
 
 	tiker := time.NewTicker(200 * time.Millisecond)
 	defer tiker.Stop()
@@ -525,6 +513,9 @@ func (rf *Raft) Leader() {
 			//	return
 		}
 	}
+	if rf.killed() {
+		return
+	}
 	switch rf.getState() {
 	case Leader:
 		rf.Leader()
@@ -558,7 +549,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.currentState = Follower
 	rf.currentTerm = 0
 	rf.votedFor = -1
-	// rf.newTerm = false
 
 	rf.commitIndex = -1
 	rf.lastApplied = -1
@@ -566,16 +556,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.revAppendEntry = make(chan bool)
 	rf.revRequestVote = make(chan bool)
 
-	// logfile, _ := os.Open("log")
-	// println(ok)
-	// logrus.SetOutput(logfile)
-	// defer logfile.Close()
-
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
-	// // start ticker goroutine to start elections
-	// go rf.ticker()
 	go rf.Follower()
 
 	return rf
