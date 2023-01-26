@@ -7,13 +7,13 @@ import (
 )
 
 const (
-	Leader    int = 0
-	Candidate     = 1
-	Follower      = 2
+	Leader    uint32 = 0
+	Candidate        = 1
+	Follower         = 2
 )
 
 type LogEntry struct {
-	Term    int
+	Term    uint32
 	Command string
 	Key     string
 	Value   string
@@ -25,10 +25,10 @@ type LogEntry struct {
 //
 type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
-	Term         int //candidate term
-	CandidateId  int //candidate Id
-	LastLogIndex int //index of candidate's last log entry
-	LastLogTerm  int //term of candidate's last log entry
+	Term         uint32 //candidate term
+	CandidateId  int    //candidate Id
+	LastLogIndex int    //index of candidate's last log entry
+	LastLogTerm  int    //term of candidate's last log entry
 }
 
 //
@@ -37,12 +37,12 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here (2A).
-	Term        int  //current term, for candidate to update itself
-	VoteGranted bool //True means candidate receives vote
+	Term        uint32 //current term, for candidate to update itself
+	VoteGranted bool   //True means candidate receives vote
 }
 
 type AppendEtryArgs struct {
-	Term         int        //leader's term
+	Term         uint32     //leader's term
 	LeaderId     int        // for followers to redirect client's request
 	PrevLogIndex int        //index of log entry immediately preceding new ones
 	PrevLogTerm  int        //term of prevLogIndex entry
@@ -51,13 +51,13 @@ type AppendEtryArgs struct {
 }
 
 type AppendEtryReply struct {
-	Term    int  //currentTerm, for leader to update itself
-	Success bool //true if follower contained entry matching prevLogIndex and prevLogTerm
+	Term    uint32 //currentTerm, for leader to update itself
+	Success bool   //true if follower contained entry matching prevLogIndex and prevLogTerm
 }
 
 func (rf *Raft) ResetTimeOut() {
 	if rf.electTimer == nil {
-		rf.electTimer = time.NewTimer(time.Duration((rand.Intn(400))+200) * time.Millisecond)
+		rf.electTimer = time.NewTimer(time.Duration((rand.Intn(400))+400) * time.Millisecond)
 	} else {
 		if !rf.electTimer.Stop() {
 			select {
@@ -67,8 +67,28 @@ func (rf *Raft) ResetTimeOut() {
 				break
 			}
 		}
-		rf.electTimer.Reset(time.Duration((rand.Intn(400))+200) * time.Millisecond)
+		rf.electTimer.Reset(time.Duration((rand.Intn(400))+400) * time.Millisecond)
 	}
+}
+
+func (rf *Raft) getState() uint32 {
+	return atomic.LoadUint32(&rf.currentState)
+}
+
+func (rf *Raft) setState(state uint32) {
+	atomic.StoreUint32(&rf.currentState, state)
+}
+
+func (rf *Raft) getTerm() uint32 {
+	return atomic.LoadUint32(&rf.currentTerm)
+}
+
+func (rf *Raft) incTerm() {
+	atomic.AddUint32(&rf.currentTerm, 1)
+}
+
+func (rf *Raft) setTerm(term uint32) {
+	atomic.StoreUint32(&rf.currentTerm, term)
 }
 
 //
